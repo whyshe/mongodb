@@ -1,0 +1,129 @@
+1. Создал ВМ Mongodb на Яндекс Клауд: создал пользователя nick, добавил сертификат ssl
+2. Подключился с ПК (ос altlinux) по ssh к ВМ Mongodb
+3. Установил Монго:
+sudo -i
+wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
+
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+
+--обновил репозиторий
+apt update
+
+--установка Монго
+apt-get install -y mongodb-org
+--запускаем
+sudo systemctl start mongod
+--проверяем
+sudo systemctl status mongod
+
+4. Настройки в Монго
+mongosh --port 27017
+
+--Создаем пользователя root
+use admin
+db.createUser( { user: "root", pwd: "********", roles: [ "userAdminAnyDatabase", "dbAdminAnyDatabase", "readWriteAnyDatabase" ] } )
+exit
+
+--Правим конф файл
+vi /etc/mongod.conf
+добавляем в раздел:
+# network interfaces после bindIp: 127.0.0.1
+# все должны видеть нашу БД
+bindIpAll: true
+
+--Убираем # в разделе security
+security:
+  authorization: enabled
+
+--Сохраняем 
+:wq!
+
+--Перезапускаем Монго
+sudo systemctl restart mongod
+
+--Моя строка подключения
+mongosh --port 27017 -u "root" -p "********" --authenticationDatabase "admin"
+
+5. Закачал через sFTP на ВМ файл Mall_Customers.csv
+6. Сделал импорт коллекции mall_customers в БД test
+mongoimport --type csv -d test -c mall_customers --headerline /home/nick/mydoc/Mall_Customers.csv
+
+2022-09-23T19:48:03.904+0000	connected to: mongodb://localhost/
+2022-09-23T19:48:03.924+0000	200 document(s) imported successfully. 0 document(s) failed to import.
+
+test> db.stats()
+{
+  db: 'test',
+  collections: 2,
+  views: 0,
+  objects: 212,
+  avgObjSize: 117.17924528301887,
+  dataSize: 24842,
+  storageSize: 61440,
+  indexes: 3,
+  indexSize: 77824,
+  totalSize: 139264,
+  scaleFactor: 1,
+  fsUsedSize: 4273451008,
+  fsTotalSize: 15777296384,
+  ok: 1
+}
+
+
+7. Запросы
+{   _id, CustomerID,Genre,Age,'Annual Income (k$)','Spending Score (1-100)' }
+
+--Выборка
+---показать все документы, в которых Возраст больше 25
+db.mall_customers.find({"Age" : {$gt: 25}})
+
+---показать документы, в которых Возраст 20 и Пол мужской
+db.mall_customers.find({$and :[{"Age" : 20}, {"Genre": "Male"}]})
+
+---показать документы, в которых Возраст от 30 до 35, Пол женский, Годовой доход больше 25
+db.mall_customers.find({"Age" : {$in: [30, 35]}, "Genre": "Female", 'Annual Income (k$)' : {$gt: 25}})
+
+---показать агрегацию по Возрасту
+db.mall_customers.aggregate([ {$group : {_id : "$Age", 'Annual Income (k$)' : {$sum : 1} } } ] )
+
+---показать кол-во документов, в которых Возраст меньше 20
+db.mall_customers.count({ "Age" : {$lt : 20 } } )
+
+
+--Обновление
+---обновить в первом найденном документе, в котором Пол женский, Возраст на 19
+db.mall_customers.update("Genre": "Female", {$set: {"Age": 19}})
+
+---обновить в первом найденном документе, в котором Пол мужской и Возраст от 60 до 65, Годовой доход на 20 и Оценку расходов на 60
+db.mall_customers.update({$and :[{"Genre": "Male"},{"Age":{$in: [60, 65]} }]}, {$set: {'Annual Income (k$)':20,'Spending Score (1-100)': 60}})
+
+-проверка
+db.mall_customers.find({$and :[{"Genre": "Male"},{"Age":{$in: [60, 65]} }]})
+
+
+---обновить во всех найденных документах, в которых Возраст 70, Оценку расходов на 70
+db.mall_customers.updateMany({"Age" : 70}, {$set: {'Spending Score (1-100)': 70}})
+
+---обновить во всех найденных документах, в которых Годовой доход меньше 25 и Пол женский, Оценку расходов на 60
+db.mall_customers.updateMany({$and :[{'Annual Income (k$)' : {$lt: 25}},{"Genre": "Female"}]}, {$set: {'Spending Score (1-100)': 60}})
+
+
+--Удаление
+---удалить первый найденный документ, в котором Возраст меньше 20
+db.mall_customers.countDocuments({"Age" : {$lt: 20}})
+db.mall_customers.deleteOne({"Age" : {$lt: 20}})
+--проверяем, должно быть на 1 меньше
+db.mall_customers.countDocuments({"Age" : {$lt: 20}})
+
+
+---удалить первый найденный документ, в котором Возраст 20 и Пол мужской
+db.mall_customers.countDocuments({$and :[{"Age" : 20}, {"Genre": "Male"}]})
+db.mall_customers.deleteOne({$and :[{"Age" : 20}, {"Genre": "Male"}]})
+--проверяем, должно быть на 1 меньше
+db.mall_customers.countDocuments({$and :[{"Age" : 20}, {"Genre": "Male"}]})
+
+---удалить все документы, в которых Возраст от 30 до 35, Пол женский, Годовой доход больше 25
+db.mall_customers.countDocuments({"Age" : {$in: [30, 35]}, "Genre": "Female", 'Annual Income (k$)' : {$gt: 25}})
+db.mall_customers.deleteMany({"Age" : {$in: [30, 35]}, "Genre": "Female", 'Annual Income (k$)' : {$gt: 25}})
+--проверяем, должно быть 0
+db.mall_customers.countDocuments({"Age" : {$in: [30, 35]}, "Genre": "Female", 'Annual Income (k$)' : {$gt: 25}})
