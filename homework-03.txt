@@ -1,0 +1,52 @@
+1. Создал ВМ Mongodb на Яндекс Клауд:
+	а. Зарегистрировался на Yandex Cloud
+	б. Создал в разделе Compute Cloud ВМ mongodb с настройками по умолчанию.
+	в. Указал сервисный аккаунт nick.
+	г. На своем ПК (ос altlinux) создал ключ ssh и добавил его при создании ВМ.
+
+2. Подключился с ПК (ос altlinux) по ssh к ВМ Mongodb, ip адрес взял из св-в ВМ в Yandex Cloud.
+3. Установил Монго:
+sudo -i
+wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
+
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+
+--обновляем репозиторий
+apt update
+
+--установка Монго
+apt-get install -y mongodb-org
+--запускаем
+sudo systemctl start mongod
+--проверяем
+sudo systemctl status mongod
+
+4. Настройки в Монго
+mongosh --port 27017
+
+--Создаем пользователя root
+use admin
+show dbs
+db.createUser( { user: "root", pwd: "********", roles: [ "userAdminAnyDatabase", "dbAdminAnyDatabase", "readWriteAnyDatabase" ] } )
+exit
+
+--Правим конф файл
+vi /etc/mongod.conf
+добавляем в раздел:
+# network interfaces после bindIp: 127.0.0.1
+# все должны видеть нашу БД
+bindIpAll: true
+
+--Убираем # в разделе security
+security:
+  authorization: enabled
+
+--Сохраняем 
+:wq!
+
+--Перезапускаем Монго
+sudo systemctl restart mongod
+
+--Моя строка подключения
+mongosh --port 27017 -u "root" -p "********" --authenticationDatabase "admin"
+
