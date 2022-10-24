@@ -1,0 +1,157 @@
+
+--Попробуем уронить RS и посмотрим, что будет.
+--У нас есть 2 шарда по RS и RS для конфиг серверов. см. файл homework11.txt
+
+ssh nick@158.160.2.166
+
+sudo systemctl status mongod
+sudo systemctl start mongod
+
+mongod.service - MongoDB Database Server
+     Loaded: loaded (/lib/systemd/system/mongod.service; disabled; vendor prese>
+     Active: active (running) since Mon 2022-10-24 14:16:24 UTC; 2s ago
+       Docs: https://docs.mongodb.org/manual
+   Main PID: 710 (mongod)
+     Memory: 36.2M
+     CGroup: /system.slice/mongod.service
+             └─710 /usr/bin/mongod --config /etc/mongod.conf
+
+Oct 24 14:16:24 mongodb systemd[1]: Started MongoDB Database Server.
+
+
+--Проверяем, что репликасет работает. Добавим данные и проверим, что они появились на реплике
+mongo --port 27011
+RS1 [direct: primary] test> db.user.insert({"name":"Ivan"},{writwriteConcern: {w:"majority",j: true, wtimeout: 500}})
+DeprecationWarning: Collection.insert() is deprecated. Use insertOne, insertMany, or bulkWrite.
+{
+  acknowledged: true,
+  insertedIds: { '0': ObjectId("6356b98bf21aa302f805192e") }
+}
+RS1 [direct: primary] test> db.user.find()
+[ { _id: ObjectId("6356b98bf21aa302f805192e"), name: 'Ivan' } ]
+RS1 [direct: primary] test> exit
+
+
+mongo --port 27012
+RS1 [direct: secondary] test> rs.secondaryOk()
+DeprecationWarning: .setSecondaryOk() is deprecated. Use .setReadPref("primaryPreferred") instead
+Setting read preference from "primary" to "primaryPreferred"
+
+RS1 [direct: secondary] test> db.user.find()
+[ { _id: ObjectId("6356b98bf21aa302f805192e"), name: 'Ivan' } ]
+
+
+
+--Гасим RS1:27011
+db.shutdownServer()
+
+---Провверяем, кто стал мастером
+nick@mongodb:~$ mongosh --port 27012
+
+--db.isMaster()
+RS1 [direct: primary] test> db.isMaster()
+{
+  topologyVersion: {
+    processId: ObjectId("6356a0d1851db3d74e0c258b"),
+    counter: Long("7")
+  },
+  hosts: [ '127.0.0.1:27011', '127.0.0.1:27012', '127.0.0.1:27013' ],
+  setName: 'RS1',
+  setVersion: 1,
+  ismaster: true,
+  secondary: false,
+  primary: '127.0.0.1:27012',
+  me: '127.0.0.1:27012',
+  electionId: ObjectId("7fffffff0000000000000004"),
+  lastWrite: {
+    opTime: { ts: Timestamp({ t: 1666630372, i: 1 }), t: Long("4") },
+    lastWriteDate: ISODate("2022-10-24T16:52:52.000Z"),
+    majorityOpTime: { ts: Timestamp({ t: 1666630372, i: 1 }), t: Long("4") },
+    majorityWriteDate: ISODate("2022-10-24T16:52:52.000Z")
+  },
+  isImplicitDefaultMajorityWC: true,
+  maxBsonObjectSize: 16777216,
+  maxMessageSizeBytes: 48000000,
+  maxWriteBatchSize: 100000,
+  localTime: ISODate("2022-10-24T16:53:01.509Z"),
+  logicalSessionTimeoutMinutes: 30,
+  connectionId: 141,
+  minWireVersion: 0,
+  maxWireVersion: 17,
+  readOnly: false,
+  ok: 1,
+  lastCommittedOpTime: Timestamp({ t: 1666630372, i: 1 }),
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666630374, i: 2 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666630372, i: 1 }),
+  isWritablePrimary: true
+}
+
+RS1 [direct: primary] test> db.user.find()
+[ { _id: ObjectId("6356b98bf21aa302f805192e"), name: 'Ivan' } ]
+
+exit
+
+Вывод: мастером стала реплика RS1:27012
+
+
+--Запускаем RS1:27011 и смотрим, станет ли она мастером
+mongod --shardsvr --dbpath /home/mongo/db1 --port 27011 --replSet RS1 --fork --logpath /home/mongo/db1/db1.log --pidfilepath /home/mongo/db1/db1.pid
+nick@mongodb:~$ mongosh --port 27011
+
+RS1 [direct: primary] test> db.isMaster()
+{
+  topologyVersion: {
+    processId: ObjectId("6356c6f848124914d0881ff4"),
+    counter: Long("6")
+  },
+  hosts: [ '127.0.0.1:27011', '127.0.0.1:27012', '127.0.0.1:27013' ],
+  setName: 'RS1',
+  setVersion: 1,
+  ismaster: true,
+  secondary: false,
+  primary: '127.0.0.1:27011',
+  me: '127.0.0.1:27011',
+  electionId: ObjectId("7fffffff0000000000000005"),
+  lastWrite: {
+    opTime: { ts: Timestamp({ t: 1666631458, i: 1 }), t: Long("5") },
+    lastWriteDate: ISODate("2022-10-24T17:10:58.000Z"),
+    majorityOpTime: { ts: Timestamp({ t: 1666631458, i: 1 }), t: Long("5") },
+    majorityWriteDate: ISODate("2022-10-24T17:10:58.000Z")
+  },
+  isImplicitDefaultMajorityWC: true,
+  maxBsonObjectSize: 16777216,
+  maxMessageSizeBytes: 48000000,
+  maxWriteBatchSize: 100000,
+  localTime: ISODate("2022-10-24T17:11:04.472Z"),
+  logicalSessionTimeoutMinutes: 30,
+  connectionId: 68,
+  minWireVersion: 0,
+  maxWireVersion: 17,
+  readOnly: false,
+  ok: 1,
+  lastCommittedOpTime: Timestamp({ t: 1666631458, i: 1 }),
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666631463, i: 3 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666631458, i: 1 }),
+  isWritablePrimary: true
+}
+
+---Вывод
+Произошло переключение мастера с RS1:27012 na RS1:27011
+
+
+
+
+
+

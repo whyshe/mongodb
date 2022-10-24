@@ -1,0 +1,372 @@
+--ЯО
+yc compute instance create \
+  --name mongodb \
+  --hostname mongodb \
+  --create-boot-disk size=15G,type=network-ssd,image-folder-id=standard-images,image-family=ubuntu-2204-lts \
+  --network-interface subnet-name=default-ru-central1-a,nat-ip-version=ipv4 \
+  --zone ru-central1-a \
+  --metadata-from-file ssh-keys=/home/whyshe/.ssh/whyshe.txt
+
+
+yc compute instance get mongodb
+
+--Подключаемся к ВМ
+ssh nick@158.160.14.81
+
+--Подключаемся к Монго
+mongosh --port 27017 -u "root" -p "********" --authenticationDatabase "admin"
+
+sudo systemctl status mongod
+
+--Запускаем Монго
+sudo systemctl start mongod
+mongosh --port 27017 -u "root" -p "********" --authenticationDatabase "admin"
+exit
+
+
+-- Создадим репликасет с конфигурацией шарда
+
+--Создаем папки и даем на них полные права
+sudo mkdir /home/mongo && sudo mkdir /home/mongo/{dbc1,dbc2,dbc3} && sudo chmod 777 /home/mongo/{dbc1,dbc2,dbc3}
+
+--Запускаем демоны
+mongod --configsvr --dbpath /home/mongo/dbc1 --port 27001 --replSet RScfg --fork --logpath /home/mongo/dbc1/dbc1.log --pidfilepath /home/mongo/dbc1/dbc1.pid
+mongod --configsvr --dbpath /home/mongo/dbc2 --port 27002 --replSet RScfg --fork --logpath /home/mongo/dbc2/dbc2.log --pidfilepath /home/mongo/dbc2/dbc2.pid
+mongod --configsvr --dbpath /home/mongo/dbc3 --port 27003 --replSet RScfg --fork --logpath /home/mongo/dbc3/dbc3.log --pidfilepath /home/mongo/dbc3/dbc3.pid
+
+--Посмотрим, что процессы успешно запущены
+ps aux | grep mongo| grep -Ev "grep" 
+mongodb     1201  0.5  6.1 2617632 125256 ?      Ssl  17:22   0:09 /usr/bin/mongod --config /etc/mongod.conf
+nick        1394  3.5  5.2 2809224 106192 ?      Sl   17:51   0:01 mongod --configsvr --dbpath /home/mongo/dbc1 --port 27001 --replSet RScfg --fork --logpath /home/mongo/dbc1/dbc1.log --pidfilepath /home/mongo/dbc1/dbc1.pid
+nick        1461  3.8  4.8 2803736 98720 ?       Sl   17:51   0:01 mongod --configsvr --dbpath /home/mongo/dbc2 --port 27002 --replSet RScfg --fork --logpath /home/mongo/dbc2/dbc2.log --pidfilepath /home/mongo/dbc2/dbc2.pid
+nick        1528  4.1  4.8 2803736 98516 ?       Sl   17:52   0:01 mongod --configsvr --dbpath /home/mongo/dbc3 --port 27003 --replSet RScfg --fork --logpath /home/mongo/dbc3/dbc3.log --pidfilepath /home/mongo/dbc3/dbc3.pid
+
+--Подключаюсь к первому хосту в репликасете configsvr
+mongosh --port 27017
+
+--Инициализация RScfg
+rs.initiate({"_id" : "RScfg", configsvr: true, members : [{"_id" : 0, priority : 3, host : "127.0.0.1:27001"},{"_id" : 1, host : "127.0.0.1:27002"},{"_id" : 2, host : "127.0.0.1:27003"}]});
+
+RScfg [direct: other] test> 
+RScfg [direct: primary] test> 
+
+-- Создаем 2 репликасета
+sudo mkdir /home/mongo/{db1,db2,db3,db4,db5,db6} && sudo chmod 777 /home/mongo/{db1,db2,db3,db4,db5,db6}
+mongod --shardsvr --dbpath /home/mongo/db1 --port 27011 --replSet RS1 --fork --logpath /home/mongo/db1/db1.log --pidfilepath /home/mongo/db1/db1.pid
+mongod --shardsvr --dbpath /home/mongo/db2 --port 27012 --replSet RS1 --fork --logpath /home/mongo/db2/db2.log --pidfilepath /home/mongo/db2/db2.pid
+mongod --shardsvr --dbpath /home/mongo/db3 --port 27013 --replSet RS1 --fork --logpath /home/mongo/db3/db3.log --pidfilepath /home/mongo/db3/db3.pid
+mongod --shardsvr --dbpath /home/mongo/db4 --port 27021 --replSet RS2 --fork --logpath /home/mongo/db4/db4.log --pidfilepath /home/mongo/db4/db4.pid
+mongod --shardsvr --dbpath /home/mongo/db5 --port 27022 --replSet RS2 --fork --logpath /home/mongo/db5/db5.log --pidfilepath /home/mongo/db5/db5.pid
+mongod --shardsvr --dbpath /home/mongo/db6 --port 27023 --replSet RS2 --fork --logpath /home/mongo/db6/db6.log --pidfilepath /home/mongo/db6/db6.pid
+
+--проверяем
+ps aux | grep mongo| grep -Ev "grep"
+
+--Подключаемся к 1 шарду и инициализируем RS1
+mongosh --port 27011
+rs.initiate({"_id" : "RS1", members : [{"_id" : 0, priority : 3, host : "127.0.0.1:27011"},{"_id" : 1, host : "127.0.0.1:27012"},{"_id" : 2, host : "127.0.0.1:27013"}]});
+
+--результат
+test> rs.initiate({"_id" : "RS1", members : [{"_id" : 0, priority : 3, host : "127.0.0.1:27011"},{"_id" : 1, host : "127.0.0.1:27012"},{"_id" : 2, host : "127.0.0.1:27013"}]});
+{ ok: 1 }
+RS1 [direct: other] test> 
+RS1 [direct: secondary] test> 
+
+
+--Подключаемся ко 2 шарду и инициализируем RS2
+mongosh --port 27021
+rs.initiate({"_id" : "RS2", members : [{"_id" : 0, priority : 3, host : "127.0.0.1:27021"},{"_id" : 1, host : "127.0.0.1:27022"},{"_id" : 2, host : "127.0.0.1:27023"}]});
+
+--результат
+test> rs.initiate({"_id" : "RS2", members : [{"_id" : 0, priority : 3, host : "127.0.0.1:27021"},{"_id" : 1, host : "127.0.0.1:27022"},{"_id" : 2, host : "127.0.0.1:27023"}]});
+{ ok: 1 }
+RS2 [direct: other] test> 
+RS2 [direct: secondary] test> 
+
+
+--Создаем шардированный кластер
+mongos --configdb RScfg/127.0.0.1:27001,127.0.0.1:27002,127.0.0.1:27003 --port 27000 --fork --logpath /home/mongo/dbc1/dbs.log --pidfilepath /home/mongo/dbc1/dbs.pid 
+
+--Результат
+about to fork child process, waiting until server is ready for connections.
+forked process: 4594
+child process started successfully, parent exiting
+
+
+mongos --configdb RScfg/127.0.0.1:27001,127.0.0.1:27002,127.0.0.1:27003 --port 27100 --fork --logpath /home/mongo/dbc1/dbs2.log --pidfilepath /home/mongo/dbc1/dbs2.pid 
+
+--Результат
+about to fork child process, waiting until server is ready for connections.
+forked process: 4643
+child process started successfully, parent exiting
+
+--Подключаемся
+mongosh --port 27000
+[direct: mongos] test> sh.addShard("RS1/127.0.0.1:27011,127.0.0.1:27012,127.0.0.1:27013")
+{
+  shardAdded: 'RS1',
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666476184, i: 9 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666476184, i: 9 })
+}
+
+direct: mongos] test> sh.addShard("RS2/127.0.0.1:27021,127.0.0.1:27022,127.0.0.1:27023")
+{
+  shardAdded: 'RS2',
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666476275, i: 8 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666476275, i: 8 })
+}
+
+--Проверяем статус шардов
+sh.status()
+
+[direct: mongos] test> sh.status()
+shardingVersion
+{
+  _id: 1,
+  minCompatibleVersion: 5,
+  currentVersion: 6,
+  clusterId: ObjectId("6354583fe047d490b625328d")
+}
+---
+shards
+[
+  {
+    _id: 'RS1',
+    host: 'RS1/127.0.0.1:27011,127.0.0.1:27012,127.0.0.1:27013',
+    state: 1,
+    topologyTime: Timestamp({ t: 1666476184, i: 6 })
+  },
+  {
+    _id: 'RS2',
+    host: 'RS2/127.0.0.1:27021,127.0.0.1:27022,127.0.0.1:27023',
+    state: 1,
+    topologyTime: Timestamp({ t: 1666476275, i: 6 })
+  }
+]
+---
+active mongoses
+[ { '6.0.1': 2 } ]
+---
+autosplit
+{ 'Currently enabled': 'yes' }
+---
+balancer
+{
+  'Currently enabled': 'yes',
+  'Currently running': 'no',
+  'Failed balancer rounds in last 5 attempts': 0,
+  'Migration Results for the last 24 hours': 'No recent migrations'
+}
+---
+databases
+[
+  {
+    database: { _id: 'config', primary: 'config', partitioned: true },
+    collections: {}
+  }
+]
+
+--Проверяем, что запущено
+--ps aux | grep mongo| grep -Ev "grep"
+
+nick@mongodb:~$ ps aux | grep mongo| grep -Ev "grep"
+
+mongodb     1201  0.3  6.1 2619688 124308 ?      Ssl  17:22   1:11 /usr/bin/mongod --config /etc/mongod.conf
+nick        1394  1.0  7.2 3087292 146412 ?      Sl   17:51   2:48 mongod --configsvr --dbpath /home/mongo/dbc1 --port 27001 --replSet RScfg --fork --logpath /home/mongo/dbc1/dbc1.log --pidfilepath /home/mongo/dbc1/dbc1.pid
+nick        1461  0.9  6.7 3074932 136616 ?      Sl   17:51   2:33 mongod --configsvr --dbpath /home/mongo/dbc2 --port 27002 --replSet RScfg --fork --logpath /home/mongo/dbc2/dbc2.log --pidfilepath /home/mongo/dbc2/dbc2.pid
+nick        1528  0.9  6.5 3068044 133912 ?      Sl   17:52   2:33 mongod --configsvr --dbpath /home/mongo/dbc3 --port 27003 --replSet RScfg --fork --logpath /home/mongo/dbc3/dbc3.log --pidfilepath /home/mongo/dbc3/dbc3.pid
+nick        3669  1.2  6.9 3197916 142020 ?      Sl   21:27   0:48 mongod --shardsvr --dbpath /home/mongo/db1 --port 27011 --replSet RS1 --fork --logpath /home/mongo/db1/db1.log --pidfilepath /home/mongo/db1/db1.pid
+nick        3732  0.9  6.5 3118556 132572 ?      Sl   21:27   0:36 mongod --shardsvr --dbpath /home/mongo/db2 --port 27012 --replSet RS1 --fork --logpath /home/mongo/db2/db2.log --pidfilepath /home/mongo/db2/db2.pid
+nick        3796  0.9  6.4 3111220 130764 ?      Sl   21:27   0:35 mongod --shardsvr --dbpath /home/mongo/db3 --port 27013 --replSet RS1 --fork --logpath /home/mongo/db3/db3.log --pidfilepath /home/mongo/db3/db3.pid
+nick        3858  1.1  6.9 3172148 141572 ?      Sl   21:27   0:44 mongod --shardsvr --dbpath /home/mongo/db4 --port 27021 --replSet RS2 --fork --logpath /home/mongo/db4/db4.log --pidfilepath /home/mongo/db4/db4.pid
+nick        3920  0.8  6.4 3108064 130512 ?      Sl   21:27   0:32 mongod --shardsvr --dbpath /home/mongo/db5 --port 27022 --replSet RS2 --fork --logpath /home/mongo/db5/db5.log --pidfilepath /home/mongo/db5/db5.pid
+nick        3982  0.8  6.4 3108064 130192 ?      Sl   21:27   0:32 mongod --shardsvr --dbpath /home/mongo/db6 --port 27023 --replSet RS2 --fork --logpath /home/mongo/db6/db6.log --pidfilepath /home/mongo/db6/db6.pid
+nick        4594  0.2  2.4 2509848 49776 ?       Sl   21:59   0:04 mongos --configdb RScfg/127.0.0.1:27001,127.0.0.1:27002,127.0.0.1:27003 --port 27000 --fork --logpath /home/mongo/dbc1/dbs.log --pidfilepath /home/mongo/dbc1/dbs.pid
+nick        4643  0.2  2.3 2498072 47260 ?       Sl   22:00   0:04 mongos --configdb RScfg/127.0.0.1:27001,127.0.0.1:27002,127.0.0.1:27003 --port 27100 --fork --logpath /home/mongo/dbc1/dbs2.log --pidfilepath /home/mongo/dbc1/dbs2.pid
+
+--Устанавливаем htop
+nick@mongodb:~$ sudo apt install htop
+
+
+
+--Добавим данные
+mongosh --port 27000
+use bank
+--включаем шардирование на бд bank
+sh.enableSharding("bank")
+
+[direct: mongos] bank> sh.enableSharding("bank")
+{
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666478514, i: 4 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666478514, i: 3 })
+}
+
+use config
+[direct: mongos] config> db.settings.save({ _id:"chunksize", value: 1})
+TypeError: db.settings.save is not a function
+
+use bank
+for (var i=0; i<100000; i++) { db.tickets.insert({name: "Max ammout of cost tickets", amount: Math.random()*100}) }
+db.tickets.createIndex({amount: 1})
+db.tickets.stats()
+
+--Выбираем ключ шардирования
+[direct: mongos] bank> sh.shardCollection("bank.tickets",{amount: 1})
+{
+  collectionsharded: 'bank.tickets',
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666480603, i: 19 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666480603, i: 15 })
+}
+
+
+sh.status()
+
+[direct: mongos] bank> sh.balancerCollectionStatus("bank.tickets")
+{
+  chunkSize: Long("128"),
+  balancerCompliant: true,
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666481550, i: 2 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666481550, i: 2 })
+}
+
+
+[direct: mongos] bank> sh.splitFind( "bank.tickets", { "amount": "50" } )
+{
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1666481628, i: 5 }),
+    signature: {
+      hash: Binary(Buffer.from("0000000000000000000000000000000000000000", "hex"), 0),
+      keyId: Long("0")
+    }
+  },
+  operationTime: Timestamp({ t: 1666481628, i: 5 })
+}
+
+
+[direct: mongos] test> sh.status()
+shardingVersion
+{
+  _id: 1,
+  minCompatibleVersion: 5,
+  currentVersion: 6,
+  clusterId: ObjectId("6354583fe047d490b625328d")
+}
+---
+shards
+[
+  {
+    _id: 'RS1',
+    host: 'RS1/127.0.0.1:27011,127.0.0.1:27012,127.0.0.1:27013',
+    state: 1,
+    topologyTime: Timestamp({ t: 1666476184, i: 6 })
+  },
+  {
+    _id: 'RS2',
+    host: 'RS2/127.0.0.1:27021,127.0.0.1:27022,127.0.0.1:27023',
+    state: 1,
+    topologyTime: Timestamp({ t: 1666476275, i: 6 })
+  }
+]
+---
+active mongoses
+[ { '6.0.1': 2 } ]
+---
+autosplit
+{ 'Currently enabled': 'yes' }
+---
+balancer
+{
+  'Currently running': 'no',
+  'Failed balancer rounds in last 5 attempts': 0,
+  'Currently enabled': 'yes',
+  'Migration Results for the last 24 hours': 'No recent migrations'
+}
+---
+databases
+[
+  {
+    database: {
+      _id: 'bank',
+      primary: 'RS2',
+      partitioned: false,
+      version: {
+        uuid: new UUID("e4404366-862b-46fb-829c-83ff2ec52567"),
+        timestamp: Timestamp({ t: 1666478514, i: 1 }),
+        lastMod: 1
+      }
+    },
+    collections: {
+      'bank.tickets': {
+        shardKey: { amount: 1 },
+        unique: false,
+        balancing: true,
+        chunkMetadata: [ { shard: 'RS1', nChunks: 1 }, { shard: 'RS2', nChunks: 1 } ],
+        chunks: [
+          { min: { amount: MinKey() }, max: { amount: 49.8989984812163 }, 'on shard': 'RS1', 'last modified': Timestamp({ t: 2, i: 0 }) },
+          { min: { amount: 49.8989984812163 }, max: { amount: MaxKey() }, 'on shard': 'RS2', 'last modified': Timestamp({ t: 2, i: 1 }) }
+        ],
+        tags: []
+      }
+    }
+  },
+  {
+    database: { _id: 'config', primary: 'config', partitioned: true },
+    collections: {
+      'config.system.sessions': {
+        shardKey: { _id: 1 },
+        unique: false,
+        balancing: true,
+        chunkMetadata: [
+          { shard: 'RS1', nChunks: 512 },
+          { shard: 'RS2', nChunks: 512 }
+        ],
+        chunks: [
+          'too many chunks to print, use verbose if you want to force print'
+        ],
+        tags: []
+      }
+    }
+  }
+]
+
+
+
+
+
+
