@@ -1,0 +1,516 @@
+#--Установил Яндекс CLI
+Выполнил в терминале своего ПК:
+curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+
+yc PATH has been added to your '/home/nick/.bashrc' profile
+yc bash completion has been added to your '/home/nick/.bashrc' profile.
+Now we have zsh completion. Type "echo 'source /home/nick/yandex-cloud/completion.zsh.inc' >>  ~/.zshrc" to install itTo complete installation, start a new shell (exec -l $SHELL) or type 'source "/home/nick/.bashrc"' in the current one
+
+
+
+nick@nick ~ $ yc config list
+ERROR: profile 'default' not found
+
+nick@nick ~ $ yc init
+Welcome! This command will take you through the configuration process.
+Please go to https://oauth.yandex.ru/authorize?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb in order to obtain OAuth token.
+
+
+#--Открыл ссылку и скопировал из браузера свой OAuth token
+
+Please enter OAuth token: y0_AgAAAABkXtJdAATuwQAAAADR9LXfHk0xYbrMQUGhKepmXXDb1iCnvP
+You have one cloud available: 'cloud-whyshe-x5' (id = b1gbm6qn9n2ad561h5k7). It is going to be used by default.
+Please choose folder to use:
+ [1] mongo (id = b1g2irtfd49av3lbsk49)
+ [2] Create a new folder
+Please enter your numeric choice: 1
+Your current folder has been set to 'mongo' (id = b1g2irtfd49av3lbsk49).
+Do you want to configure a default Compute zone? [Y/n] y
+Which zone do you want to use as a profile default?
+ [1] ru-central1-a
+ [2] ru-central1-b
+ [3] ru-central1-c
+ [4] Don't set default zone
+Please enter your numeric choice: 2
+Your profile default Compute zone has been set to 'ru-central1-b'.
+
+nick@nick ~ $ yc config list
+token: y0_AgAAAABkXtJdAATuwQAAAADR9LXfHk0xYbrMQUGhKepmXXDb1iCnvP
+cloud-id: b1gbm6qn9n2ad561h5k7
+folder-id: b1g2irtfd49av3lbsk49
+compute-default-zone: ru-central1-b
+
+
+#--Проверяем, есть ли в каталоге сети или подсети для хостов кластера:
+yc vpc network list
+нет
+
+#--Создаем сеть
+yc vpc network create --name nick-db-mdb-net-2 \
+	--description "name-db-mdb-net-2"
+
+id: enp102js9thvjm013uta
+folder_id: b1g2irtfd49av3lbsk49
+created_at: "2023-01-12T21:38:11Z"
+name: nick-db-mdb-net-2
+description: name-db-mdb-net-2
+
+
+#--Смотрим подсети
+yc vpc subnet list
+нет
+
+#--Создаем подсети:
+yc vpc subnet create --name nick-db-mdb-subnet-a-2 \
+  --description "nick-db-mdb-subnet-a-2" \
+  --folder-id b1g2irtfd49av3lbsk49 \
+  --network-id enp102js9thvjm013uta \
+  --zone ru-central1-a \
+  --range 10.128.0.0/24
+
+yc vpc subnet create --name nick-db-mdb-subnet-b-2 \
+  --description "nick-db-mdb-subnet-b-2" \
+  --folder-id b1g2irtfd49av3lbsk49 \
+  --network-id enp102js9thvjm013uta \
+  --zone ru-central1-b \
+  --range 10.129.0.0/24
+
+yc vpc subnet create --name nick-db-mdb-subnet-c-2 \
+  --description "nick-db-mdb-subnet-c-2" \
+  --folder-id b1g2irtfd49av3lbsk49 \
+  --network-id enp102js9thvjm013uta \
+  --zone ru-central1-c \
+  --range 10.130.0.0/24
+
+#--Проверяем создание подсетей
+yc vpc subnet list
++----------------------+------------------------+----------------------+----------------+---------------+-----------------+
+|          ID          |          NAME          |      NETWORK ID      | ROUTE TABLE ID |     ZONE      |      RANGE      |
++----------------------+------------------------+----------------------+----------------+---------------+-----------------+
+| b0cgrssmri7k44jjd7oa | nick-db-mdb-subnet-c-2 | enp102js9thvjm013uta |                | ru-central1-c | [10.130.0.0/24] |
+| e2lb5an5rm37jeumu9al | nick-db-mdb-subnet-b-2 | enp102js9thvjm013uta |                | ru-central1-b | [10.129.0.0/24] |
+| e9b3s6pqse0f8fjbtrsr | nick-db-mdb-subnet-a-2 | enp102js9thvjm013uta |                | ru-central1-a | [10.128.0.0/24] |
++----------------------+------------------------+----------------------+----------------+---------------+-----------------+
+
+#--Смотреть все ключи
+yc managed-mongodb cluster create --help
+
+#--смотреть спецификации
+yc managed-mongodb resource-preset list
+
+#--Создаем кластер mdb
+yc managed-mongodb cluster create \
+	--name mdb \
+	--environment prestable \
+	--network-name nick-db-mdb-net-2 \
+	--mongod-resource-preset s2.micro \
+	--host zone-id=ru-central1-a,subnet-id=e9b3s6pqse0f8fjbtrsr,assign-public-ip \
+	--mongodb-version 6.0 \
+	--mongod-disk-size 10 \
+	--mongod-disk-type network-hdd \
+	--user name=nick,password=nick1234@ \
+	--database name=test \
+	--deletion-protection=false
+
+done (5m35s)
+id: c9qsgtem9cq29u5mp990
+folder_id: b1g2irtfd49av3lbsk49
+created_at: "2023-01-12T22:03:43.814511Z"
+name: mdb
+environment: PRESTABLE
+monitoring:
+  - name: Console
+    description: Console charts
+    link: https://console.cloud.yandex.ru/folders/b1g2irtfd49av3lbsk49/managed-mongodb/cluster/c9qsgtem9cq29u5mp990?section=monitoring
+config:
+  version: "6.0"
+  feature_compatibility_version: "6.0"
+  mongodb_6_0:
+    mongod:
+      config:
+        effective_config:
+          storage:
+            wired_tiger:
+              engine_config: {}
+              collection_config:
+                block_compressor: SNAPPY
+            journal:
+              commit_interval: "100"
+          operation_profiling:
+            mode: SLOW_OP
+            slow_op_threshold: "300"
+          net:
+            max_incoming_connections: "1024"
+        user_config: {}
+        default_config:
+          storage:
+            wired_tiger:
+              engine_config: {}
+              collection_config:
+                block_compressor: SNAPPY
+            journal:
+              commit_interval: "100"
+          operation_profiling:
+            mode: SLOW_OP
+            slow_op_threshold: "300"
+          net:
+            max_incoming_connections: "1024"
+      resources:
+        resource_preset_id: s2.micro
+        disk_size: "10737418240"
+        disk_type_id: network-hdd
+  backup_window_start:
+    hours: 22
+  backup_retain_period_days: "7"
+  performance_diagnostics: {}
+  access: {}
+network_id: enp102js9thvjm013uta
+maintenance_window:
+  anytime: {}
+
+
+#--Мониторим кластер тут
+https://console.cloud.yandex.ru/folders/b1g2irtfd49av3lbsk49/managed-mongodb/cluster/c9qsgtem9cq29u5mp990?section=monitoring
+
+#--Смотрим кластер
+yc managed-mongodb cluster list
+
++----------------------+------+---------------------+--------+---------+
+|          ID          | NAME |     CREATED AT      | HEALTH | STATUS  |
++----------------------+------+---------------------+--------+---------+
+| c9qsgtem9cq29u5mp990 | mdb  | 2023-01-12 22:03:43 | ALIVE  | RUNNING |
++----------------------+------+---------------------+--------+---------+
+
+#--Инфа по кластеру
+yc managed-mongodb cluster get c9qsgtem9cq29u5mp990
+yc managed-mongodb cluster list-operations c9qsgtem9cq29u5mp990
+
++----------------------+---------------------+----------------------+---------------------+--------+------------------------+
+|          ID          |     CREATED AT      |      CREATED BY      |     MODIFIED AT     | STATUS |      DESCRIPTION       |
++----------------------+---------------------+----------------------+---------------------+--------+------------------------+
+| c9q1cqp3pokk992smfvm | 2023-01-12 22:03:43 | ajeqks8vghoqsto81kes | 2023-01-12 22:09:19 | DONE   | Create MongoDB cluster |
++----------------------+---------------------+----------------------+---------------------+--------+------------------------+
+
+
+#--ПОДКЛЮЧЕНИЕ К МОНГО
+#--Качаю сертификат
+curl "http://storage.yandexcloud.net/cloud-certs/CA.pem" -o ya_ca.crt
+chmod 0644 ya_ca.crt
+
+#--Смотрим host list
+yc managed-mongodb host list \
+	--cluster-id c9qsgtem9cq29u5mp990
+
++-------------------------------------------+----------------------+--------+------------+---------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |  ROLE   | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+---------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY | ALIVE  | ru-central1-a | true      |
++-------------------------------------------+----------------------+--------+------------+---------+--------+---------------+-----------+
+
+rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net
+
+#--Создаем привилегии пользователю
+#--Смотрим роли
+yc managed-mongodb user list \
+	--cluster-id c9qsgtem9cq29u5mp990
+
++------+-------------+
+| NAME | PERMISSIONS |
++------+-------------+
+| nick |             |
++------+-------------+
+
+#--Смотрим БД
+yc managed-mongodb database list \
+	--cluster-id c9qsgtem9cq29u5mp990
+
++------+----------------------+
+| NAME |      CLUSTER ID      |
++------+----------------------+
+| test | c9qsgtem9cq29u5mp990 |
++------+----------------------+
+
+#--Задаем роль для логина nick
+yc managed-mongodb user update nick \
+	--cluster-id c9qsgtem9cq29u5mp990 \
+	--password nick1234@ \
+	--permission database=test,role=readWrite \
+	--permission database=admin,role=mdbShardingManager
+# --permission database=admin,role=mdbMonitor
+
+done (23s)
+name: nick
+cluster_id: c9qsgtem9cq29u5mp990
+permissions:
+  - database_name: test
+    roles:
+      - readWrite
+  - database_name: admin
+    roles:
+      - mdbShardingManager
+
+#--Создаем админа admtest БД тест
+yc managed-mongodb user create admtest \
+	--cluster-id c9qsgtem9cq29u5mp990 \
+	--password admtest1234@ \
+	--permission database=test,role=mdbDbAdmin \
+	--permission database=admin,role=mdbShardingManager
+
+done (23s)
+name: admtest
+cluster_id: c9qsgtem9cq29u5mp990
+permissions:
+  - database_name: test
+    roles:
+      - mdbDbAdmin
+  - database_name: admin
+    roles:
+      - mdbShardingManager
+
+
+
+#--Строка подключения
+mongosh --norc \
+		--tls \
+		--tlsCAFile ya_ca.crt \
+		--host 'rs01/rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net:27018' \
+		--username nick \
+		--password nick1234@ \
+		test
+
+Проблема: на altlinux не устанавливается mongosh
+Варианты решения:
+1. На python
+2. На JavaScript
+3. На ВМ
+
+Решил проблему так:
+1. Установил на VirtualBox VM ubuntu 22.04
+2. На ubuntu установил mongodb-mongosh_1.6.2
+3. На ubuntu установил mongodb mongodb-compass_1.35.0
+wget https://downloads.mongodb.com/compass/mongodb-compass_1.35.0_amd64.deb
+sudo dpkg -i mongodb-compass_1.35.0_amd64.deb
+
+Выбор ранее не выбранного пакета mongodb-compass.
+(Чтение базы данных … на данный момент установлено 175690 файлов и каталогов.)
+Подготовка к распаковке mongodb-compass_1.35.0_amd64.deb …
+Распаковывается mongodb-compass (1.35.0) …
+dpkg: зависимости пакетов не позволяют настроить пакет mongodb-compass:
+ mongodb-compass зависит от libgconf-2-4 | libgconf2-4, однако:
+  Пакет libgconf-2-4 не установлен.
+  Пакет libgconf2-4 не установлен.
+ mongodb-compass зависит от libgconf-2-4, однако:
+  Пакет libgconf-2-4 не установлен.
+
+Попробовал загрузить и установить с диска с помощью Установки приложений. Установилось. 
+
+4. Проверил подключение к кластеру mongodb
+
+Из mongodb-compass
+mongodb://nick:nick1234%40@rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net:27018/?tls=true&tlsCAFile=%2Fmedia%2Fsf_shara%2F20%2Fya_ca.crt&authMechanism=DEFAULT&authSource=test
+
+Из mongosh
+mongosh --norc \
+		--tls \
+		--tlsCAFile ya_ca.crt \
+		--host 'rs01/rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net:27018' \
+		--username nick \
+		--password nick1234@ \
+		test
+
+
+Current Mongosh Log ID:	63c568b7c9931e04d55b6778
+Connecting to:		mongodb://<credentials>@rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net:27018/test?replicaSet=rs01&tls=true&tlsCAFile=ya_ca.crt&appName=mongosh+1.6.2
+Using MongoDB:		6.0.2-mdb-b86c396f
+Using Mongosh:		1.6.2
+
+#--Смотрим какие БД есть на сервере
+rs01 [primary] test> show dbs
+admin         280.00 KiB
+config        196.00 KiB
+local         688.00 KiB
+mdb_internal   80.00 KiB
+rs01 [primary] test> show collections
+
+
+#--Импортируем данные в БД test
+yc managed-mongodb cluster list
+
++----------------------+------+---------------------+--------+---------+
+|          ID          | NAME |     CREATED AT      | HEALTH | STATUS  |
++----------------------+------+---------------------+--------+---------+
+| c9qsgtem9cq29u5mp990 | mdb  | 2023-01-12 22:03:43 | ALIVE  | RUNNING |
++----------------------+------+---------------------+--------+---------+
+
+yc managed-mongodb host list \
+	--cluster-id c9qsgtem9cq29u5mp990
+
++-------------------------------------------+----------------------+--------+------------+---------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |  ROLE   | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+---------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY | ALIVE  | ru-central1-a | true      |
++-------------------------------------------+----------------------+--------+------------+---------+--------+---------------+-----------+
+
+cd /home/nick/demo
+
+mongoimport --ssl \
+            --sslCAFile=ya_ca.crt \
+            --host rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net:27018 \
+            -u nick \
+            -p nick1234@ \
+            --db test \
+            --collection values \
+            --type json --writeConcern="{w:0}" --file stocks.json
+
+
+2023-01-16T19:01:31.089+0300	connected to: mongodb://rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net:27018/
+2023-01-16T19:01:31.123+0300	done
+
+rs01 [primary] test> show collections
+values
+
+rs01 [primary] test> db.values.countDocuments()
+443
+
+rs01 [primary] test> db.values.find().limit(1)
+[
+  {
+    _id: ObjectId("4d094f58c96767d7a0099d49"),
+    exchange: 'NASDAQ',
+    stock_symbol: 'AACC',
+    date: '2008-03-07',
+    open: 8.4,
+    high: 8.75,
+    low: 8.08,
+    close: 8.55,
+    volume: 275800,
+    'adj close': 8.55
+  }
+]
+
+
+rs01 [primary] test> db.values.countDocuments({stock_symbol:"AAME"})
+13
+
+rs01 [primary] test> db.values.explain().count()
+{
+  explainVersion: '1',
+  queryPlanner: {
+    namespace: 'test.values',
+    indexFilterSet: false,
+    maxIndexedOrSolutionsReached: false,
+    maxIndexedAndSolutionsReached: false,
+    maxScansToExplodeReached: false,
+    winningPlan: { stage: 'RECORD_STORE_FAST_COUNT' },
+    rejectedPlans: []
+  },
+  command: { count: 'values', query: {}, '$db': 'test' },
+  serverInfo: {
+    host: 'rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net',
+    port: 27018,
+    version: '6.0.2-mdb-b86c396f',
+    gitVersion: 'b86c396f65e520493503a86c2b70de7299fc57d6'
+  },
+  serverParameters: {
+    internalQueryFacetBufferSizeBytes: 104857600,
+    internalQueryFacetMaxOutputDocSizeBytes: 104857600,
+    internalLookupStageIntermediateDocumentMaxSizeBytes: 104857600,
+    internalDocumentSourceGroupMaxMemoryBytes: 104857600,
+    internalQueryMaxBlockingSortMemoryUsageBytes: 104857600,
+    internalQueryProhibitBlockingMergeOnMongoS: 0,
+    internalQueryMaxAddToSetBytes: 104857600,
+    internalDocumentSourceSetWindowFieldsMaxMemoryBytes: 104857600
+  },
+  ok: 1,
+  '$clusterTime': {
+    clusterTime: Timestamp({ t: 1673886130, i: 1 }),
+    signature: {
+      hash: Binary(Buffer.from("0ce2a0194355f8c741a18d97881cf2d608ef723d", "hex"), 0),
+      keyId: Long("7187891090005950470")
+    }
+  },
+  operationTime: Timestamp({ t: 1673886130, i: 1 })
+}
+
+
+db.values.explain().find({stock_symbol:"AAME"})
+db.values.deleteMany({})
+
+# db.values.drop()
+db.createCollection(values)
+
+# --Создал реплику в кластере в Яндекс Клауде
+yc managed-mongodb host list \
+ --cluster-id c9qsgtem9cq29u5mp990
+
+++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |   ROLE    | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY   | ALIVE  | ru-central1-a | true      |
+| rc1b-tfltahkosmkbv64k.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-b | true      |
+| rc1c-v7ux0a439fj0qsq5.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-c | true      |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------
+
+
+#--В консоли клауда яндекса удалил хост rc1b-tfltahkosmkbv64k
+
+nick@nick ~ $ yc managed-mongodb host list \
+  --cluster-id c9qsgtem9cq29u5mp990
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |   ROLE    | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY   | ALIVE  | ru-central1-a | true      |
+| rc1c-v7ux0a439fj0qsq5.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-c | true      |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------
+
+#--В консоли клауда яндекса добавил хост
+
+
+#--Добавляем хост в кластер из терминала
+
+yc vpc subnet list
++----------------------+------------------------+----------------------+----------------+---------------+-----------------+
+|          ID          |          NAME          |      NETWORK ID      | ROUTE TABLE ID |     ZONE      |      RANGE      |
++----------------------+------------------------+----------------------+----------------+---------------+-----------------+
+| b0cgrssmri7k44jjd7oa | nick-db-mdb-subnet-c-2 | enp102js9thvjm013uta |                | ru-central1-c | [10.130.0.0/24] |
+| e2lb5an5rm37jeumu9al | nick-db-mdb-subnet-b-2 | enp102js9thvjm013uta |                | ru-central1-b | [10.129.0.0/24] |
+| e9b3s6pqse0f8fjbtrsr | nick-db-mdb-subnet-a-2 | enp102js9thvjm013uta |                | ru-central1-a | [10.128.0.0/24] |
++----------------------+------------------------+----------------------+----------------+---------------+-----------------+
+
+yc managed-mongodb host add \
+  --cluster-name mdb \
+  --host zone-id=ru-central1-b,subnet-id=e2lb5an5rm37jeumu9al
+
+nick@nick ~ $ yc managed-mongodb host list \
+   --cluster-id c9qsgtem9cq29u5mp990
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |   ROLE    | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY   | ALIVE  | ru-central1-a | true      |
+| rc1b-ytkzp6obot7x01m8.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-b | false     |
+| rc1c-v7ux0a439fj0qsq5.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-c | true      |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------
+
+
+#--В Яндекс-Клауде поменял мастера. Выборы произошли и стало так:
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |   ROLE    | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-a | true      |
+| rc1b-ytkzp6obot7x01m8.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-b | false     |
+| rc1c-v7ux0a439fj0qsq5.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY   | ALIVE  | ru-central1-c | true      |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------
+
+
+#--В Яндекс-Клауде удалил мастера. Выборы произошли и стало так:
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+|                   NAME                    |      CLUSTER ID      |  TYPE  | SHARD NAME |   ROLE    | HEALTH |    ZONE ID    | PUBLIC IP |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------+
+| rc1a-ufcw0vwpob6swtrl.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | PRIMARY   | ALIVE  | ru-central1-a | true      |
+| rc1b-ytkzp6obot7x01m8.mdb.yandexcloud.net | c9qsgtem9cq29u5mp990 | MONGOD | rs01       | SECONDARY | ALIVE  | ru-central1-b | false     |
++-------------------------------------------+----------------------+--------+------------+-----------+--------+---------------+-----------
+
+
+
+
+
